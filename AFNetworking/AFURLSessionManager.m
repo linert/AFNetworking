@@ -967,7 +967,6 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
     BOOL evaluateServerTrust = NO;
     NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
     NSURLCredential *credential = nil;
-
     if (self.authenticationChallengeHandler) {
         id result = self.authenticationChallengeHandler(session, task, challenge, completionHandler);
         if (result == nil) {
@@ -988,9 +987,13 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
     } else {
         evaluateServerTrust = [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
     }
-
+    
     if (evaluateServerTrust) {
-        if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:challenge.protectionSpace.host]) {
+        NSString *host  = [[task.currentRequest allHTTPHeaderFields] objectForKey:@"host"];
+        if (!host) {
+            host = task.currentRequest.URL.host;
+        }
+        if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:host]) {
             disposition = NSURLSessionAuthChallengeUseCredential;
             credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
         } else {
@@ -1000,7 +1003,6 @@ didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
             disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
         }
     }
-
     if (completionHandler) {
         completionHandler(disposition, credential);
     }
