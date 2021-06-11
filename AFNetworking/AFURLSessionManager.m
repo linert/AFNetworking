@@ -964,47 +964,90 @@ willPerformHTTPRedirection:(NSHTTPURLResponse *)response
 didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
  completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential *credential))completionHandler
 {
-    BOOL evaluateServerTrust = NO;
-    NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
-    NSURLCredential *credential = nil;
-    if (self.authenticationChallengeHandler) {
-        id result = self.authenticationChallengeHandler(session, task, challenge, completionHandler);
-        if (result == nil) {
-            return;
-        } else if ([result isKindOfClass:NSError.class]) {
-            objc_setAssociatedObject(task, AuthenticationChallengeErrorKey, result, OBJC_ASSOCIATION_RETAIN);
-            disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
-        } else if ([result isKindOfClass:NSURLCredential.class]) {
-            credential = result;
-            disposition = NSURLSessionAuthChallengeUseCredential;
-        } else if ([result isKindOfClass:NSNumber.class]) {
-            disposition = [result integerValue];
-            NSAssert(disposition == NSURLSessionAuthChallengePerformDefaultHandling || disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge || disposition == NSURLSessionAuthChallengeRejectProtectionSpace, @"");
-            evaluateServerTrust = disposition == NSURLSessionAuthChallengePerformDefaultHandling && [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
+    if ([[NSUserDefaults standardUserDefaults]boolForKey:@"IGC_CLOSE_HTTPDNS_KEY"]){
+        BOOL evaluateServerTrust = NO;
+        NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
+        NSURLCredential *credential = nil;
+
+        if (self.authenticationChallengeHandler) {
+            id result = self.authenticationChallengeHandler(session, task, challenge, completionHandler);
+            if (result == nil) {
+                return;
+            } else if ([result isKindOfClass:NSError.class]) {
+                objc_setAssociatedObject(task, AuthenticationChallengeErrorKey, result, OBJC_ASSOCIATION_RETAIN);
+                disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+            } else if ([result isKindOfClass:NSURLCredential.class]) {
+                credential = result;
+                disposition = NSURLSessionAuthChallengeUseCredential;
+            } else if ([result isKindOfClass:NSNumber.class]) {
+                disposition = [result integerValue];
+                NSAssert(disposition == NSURLSessionAuthChallengePerformDefaultHandling || disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge || disposition == NSURLSessionAuthChallengeRejectProtectionSpace, @"");
+                evaluateServerTrust = disposition == NSURLSessionAuthChallengePerformDefaultHandling && [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
+            } else {
+                @throw [NSException exceptionWithName:@"Invalid Return Value" reason:@"The return value from the authentication challenge handler must be nil, an NSError, an NSURLCredential or an NSNumber." userInfo:nil];
+            }
         } else {
-            @throw [NSException exceptionWithName:@"Invalid Return Value" reason:@"The return value from the authentication challenge handler must be nil, an NSError, an NSURLCredential or an NSNumber." userInfo:nil];
+            evaluateServerTrust = [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
         }
-    } else {
-        evaluateServerTrust = [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
-    }
-    
-    if (evaluateServerTrust) {
-        NSString *host  = [[task.currentRequest allHTTPHeaderFields] objectForKey:@"host"];
-        if (!host) {
-            host = task.currentRequest.URL.host;
+
+        if (evaluateServerTrust) {
+            if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:challenge.protectionSpace.host]) {
+                disposition = NSURLSessionAuthChallengeUseCredential;
+                credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+            } else {
+                objc_setAssociatedObject(task, AuthenticationChallengeErrorKey,
+                                         [self serverTrustErrorForServerTrust:challenge.protectionSpace.serverTrust url:task.currentRequest.URL],
+                                         OBJC_ASSOCIATION_RETAIN);
+                disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+            }
         }
-        if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:host]) {
-            disposition = NSURLSessionAuthChallengeUseCredential;
-            credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+
+        if (completionHandler) {
+            completionHandler(disposition, credential);
+        }
+    }else{
+        BOOL evaluateServerTrust = NO;
+        NSURLSessionAuthChallengeDisposition disposition = NSURLSessionAuthChallengePerformDefaultHandling;
+        NSURLCredential *credential = nil;
+        if (self.authenticationChallengeHandler) {
+            id result = self.authenticationChallengeHandler(session, task, challenge, completionHandler);
+            if (result == nil) {
+                return;
+            } else if ([result isKindOfClass:NSError.class]) {
+                objc_setAssociatedObject(task, AuthenticationChallengeErrorKey, result, OBJC_ASSOCIATION_RETAIN);
+                disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+            } else if ([result isKindOfClass:NSURLCredential.class]) {
+                credential = result;
+                disposition = NSURLSessionAuthChallengeUseCredential;
+            } else if ([result isKindOfClass:NSNumber.class]) {
+                disposition = [result integerValue];
+                NSAssert(disposition == NSURLSessionAuthChallengePerformDefaultHandling || disposition == NSURLSessionAuthChallengeCancelAuthenticationChallenge || disposition == NSURLSessionAuthChallengeRejectProtectionSpace, @"");
+                evaluateServerTrust = disposition == NSURLSessionAuthChallengePerformDefaultHandling && [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
+            } else {
+                @throw [NSException exceptionWithName:@"Invalid Return Value" reason:@"The return value from the authentication challenge handler must be nil, an NSError, an NSURLCredential or an NSNumber." userInfo:nil];
+            }
         } else {
-            objc_setAssociatedObject(task, AuthenticationChallengeErrorKey,
-                                     [self serverTrustErrorForServerTrust:challenge.protectionSpace.serverTrust url:task.currentRequest.URL],
-                                     OBJC_ASSOCIATION_RETAIN);
-            disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+            evaluateServerTrust = [challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
         }
-    }
-    if (completionHandler) {
-        completionHandler(disposition, credential);
+        
+        if (evaluateServerTrust) {
+            NSString *host  = [[task.currentRequest allHTTPHeaderFields] objectForKey:@"host"];
+            if (!host) {
+                host = task.currentRequest.URL.host;
+            }
+            if ([self.securityPolicy evaluateServerTrust:challenge.protectionSpace.serverTrust forDomain:host]) {
+                disposition = NSURLSessionAuthChallengeUseCredential;
+                credential = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+            } else {
+                objc_setAssociatedObject(task, AuthenticationChallengeErrorKey,
+                                         [self serverTrustErrorForServerTrust:challenge.protectionSpace.serverTrust url:task.currentRequest.URL],
+                                         OBJC_ASSOCIATION_RETAIN);
+                disposition = NSURLSessionAuthChallengeCancelAuthenticationChallenge;
+            }
+        }
+        if (completionHandler) {
+            completionHandler(disposition, credential);
+        }
     }
 }
 
